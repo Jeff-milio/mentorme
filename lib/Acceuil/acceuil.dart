@@ -5,8 +5,7 @@ import 'package:learnflutter/Acceuil/qcm/qcm.dart';
 import 'ResumeIA/Resume.dart';
 import 'VraiOFaux/VraiOFaux.dart';
 import 'flashcard/flashcard.dart';
-// Importe ici le fichier où tu as mis le ResumeScanOverlay
-// import 'resume/resume_scan.dart';
+
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -18,14 +17,29 @@ class HomePage extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 20.0),
         children: [
           const SizedBox(height: 30),
-          Text(
-            "Révisions",
-            style: GoogleFonts.poppins(
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
+
+          // --- TITRE ET LOGO ---
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(
+                "MentorMe",
+                style: GoogleFonts.poppins(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              // Ajout du logo ISPM
+              Image.asset(
+                'assets/images/ispmlogo.png', // Vérifie bien que le chemin est identique dans ton pubspec.yaml
+                height: 80, // Taille réduite comme demandé
+                fit: BoxFit.contain,
+              ),
+            ],
           ),
+
           const Text(
             "Choisissez votre méthode d'étude",
             style: TextStyle(color: Colors.white60, fontSize: 16),
@@ -50,13 +64,13 @@ class HomePage extends StatelessWidget {
             onTap: () => _showFlashcardDialog(context),
           ),
 
-          // --- RÉSUMÉ IA (Relié ici) ---
+          // --- RÉSUMÉ IA ---
           _MethodCardRect(
             title: "Résumé IA",
             subtitle: "Synthèse de vos cours",
             icon: Icons.auto_awesome_rounded,
             color: Colors.orangeAccent,
-            onTap: () => _showResumeDialog(context), // Appel de la fonction
+            onTap: () => _showResumeDialog(context),
           ),
 
           // --- VRAI OU FAUX ---
@@ -68,7 +82,7 @@ class HomePage extends StatelessWidget {
             onTap: () => _showvfDialog(context),
           ),
 
-          const SizedBox(height: 100), // Espace pour la barre de nav
+          const SizedBox(height: 100),
         ],
       ),
     );
@@ -94,21 +108,21 @@ class HomePage extends StatelessWidget {
     );
   }
 
-  // Nouvelle fonction pour le Résumé
   void _showResumeDialog(BuildContext context) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (context) => const ResumeScanOverlay(), // Utilise ton code Resume ici
+      builder: (context) => const ResumeScanOverlay(),
     );
   }
+
   void _showvfDialog(BuildContext context) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (context) => const TrueFalseScanOverlay(), // Utilise ton code Resume ici
+      builder: (context) => const TrueFalseScanOverlay(),
     );
   }
 }
