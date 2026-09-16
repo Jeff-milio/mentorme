@@ -156,7 +156,8 @@ class _MusicPageState extends State<MusicPage> with AutomaticKeepAliveClientMixi
             ),
             child: ListTile(
               leading: CircleAvatar(
-                backgroundColor: isPlaying ? Colors.blueAccent : Colors.white10,
+                backgroundColor: isPlaying ? Colors.blueAccent :
+                Colors.white10,
                 child: Icon(isPlaying ? Icons.equalizer : Icons.music_note, color: Colors.white),
               ),
               title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,

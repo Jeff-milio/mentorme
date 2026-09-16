@@ -1,10 +1,11 @@
 import 'dart:io';
 import 'dart:ui';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:syncfusion_flutter_pdf/pdf.dart';
+import 'package:http/http.dart' as http;
 
 // --- MODÈLE ---
 class Resume {
@@ -39,7 +40,9 @@ class _MainScaffoldState extends State<MainScaffold> {
             colors: [Color(0xFF000B18), Color(0xFF001F3F), Colors.black],
           ),
         ),
-        child: _currentIndex == 0 ? const HomePage() : Center(child: Text("Page $_currentIndex", style: const TextStyle(color: Colors.white))),
+        child: _currentIndex == 0
+            ? const HomePage()
+            : Center(child: Text("Page $_currentIndex", style: const TextStyle(color: Colors.white))),
       ),
       bottomNavigationBar: GlassBottomNav(
         currentIndex: _currentIndex,
@@ -98,7 +101,9 @@ class _ResumeScanOverlayState extends State<ResumeScanOverlay> {
   double _bulletCount = 5;
   bool _isLoading = false;
 
-  // Accès direct aux fichiers PDF du téléphone
+  // URL du serveur (10.0.2.2 pour Émulateur Android, 127.0.0.1 pour iOS/Desktop)
+  final String _backendUrl = "http://10.0.2.2:5000/generate-summary";
+
   Future<void> _pickPDF() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
@@ -108,24 +113,60 @@ class _ResumeScanOverlayState extends State<ResumeScanOverlay> {
       setState(() {
         _filePath = result.files.single.path;
         _fileName = result.files.single.name;
-        _isLoading = true;
       });
-      await Future.delayed(const Duration(seconds: 1)); // Extraction simulée
-      setState(() => _isLoading = false);
     }
   }
 
-  // Accès direct à la galerie Image
   Future<void> _pickImage() async {
     final XFile? image = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (image != null) {
       setState(() {
         _filePath = image.path;
         _fileName = image.name;
-        _isLoading = true;
       });
-      await Future.delayed(const Duration(seconds: 1)); // OCR simulé
-      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _generateSummaryAndNavigate() async {
+    if (_filePath == null) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      var request = http.MultipartRequest('POST', Uri.parse(_backendUrl));
+      request.files.add(await http.MultipartFile.fromPath('file', _filePath!));
+      request.fields['count'] = _bulletCount.round().toString();
+
+      var streamedResponse = await request.send();
+      var response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        Map<String, dynamic> jsonResponse = jsonDecode(response.body);
+        Resume resumeData = Resume(
+          title: jsonResponse['title'] ?? _fileName ?? "Résumé",
+          bulletPoints: List<String>.from(jsonResponse['bulletPoints'] ?? []),
+        );
+
+        if (mounted) {
+          Navigator.pop(context);
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => ResumeViewPage(resume: resumeData)),
+          );
+        }
+      } else {
+        _showError("Erreur du serveur (${response.statusCode}): ${response.body}");
+      }
+    } catch (e) {
+      _showError("Impossible de contacter le serveur : $e");
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _showError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -136,7 +177,16 @@ class _ResumeScanOverlayState extends State<ResumeScanOverlay> {
         height: MediaQuery.of(context).size.height * 0.6,
         padding: const EdgeInsets.all(30),
         child: _isLoading
-            ? const Center(child: CircularProgressIndicator(color: Colors.blueAccent))
+            ? const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: Colors.blueAccent),
+              SizedBox(height: 15),
+              Text("Analyse et génération du résumé par Gemini...", style: TextStyle(color: Colors.white70)),
+            ],
+          ),
+        )
             : Column(
           children: [
             const Text("Générer un Résumé", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
@@ -150,15 +200,19 @@ class _ResumeScanOverlayState extends State<ResumeScanOverlay> {
             ),
             const SizedBox(height: 25),
             if (_fileName != null)
-              Text("Fichier sélectionné : $_fileName",
-                  style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold),
-                  textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
-
+              Text(
+                "Fichier sélectionné : $_fileName",
+                style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             const Spacer(),
             Text("Nombre de points clés : ${_bulletCount.round()}", style: const TextStyle(color: Colors.white70)),
             Slider(
               value: _bulletCount,
-              min: 3, max: 15,
+              min: 3,
+              max: 15,
               divisions: 12,
               activeColor: Colors.blueAccent,
               inactiveColor: Colors.white10,
@@ -171,15 +225,7 @@ class _ResumeScanOverlayState extends State<ResumeScanOverlay> {
                 minimumSize: const Size(double.infinity, 55),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
               ),
-              onPressed: _filePath == null ? null : () {
-                // Simulation de données résumées
-                var resumeData = Resume(
-                  title: _fileName ?? "Mon Résumé",
-                  bulletPoints: List.generate(_bulletCount.round(), (i) => "Point clé important n°${i + 1} extrait du contenu de votre document."),
-                );
-                Navigator.pop(context);
-                Navigator.push(context, MaterialPageRoute(builder: (context) => ResumeViewPage(resume: resumeData)));
-              },
+              onPressed: _filePath == null ? null : _generateSummaryAndNavigate,
               child: const Text("Lancer le Résumé IA", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             )
           ],
@@ -223,16 +269,21 @@ class ResumeViewPage extends StatelessWidget {
                     margin: const EdgeInsets.only(bottom: 15),
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.05),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.white10)
+                      color: Colors.white.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.white10),
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text("•", style: TextStyle(color: Colors.blueAccent, fontSize: 24, fontWeight: FontWeight.bold)),
                         const SizedBox(width: 15),
-                        Expanded(child: Text(resume.bulletPoints[index], style: const TextStyle(color: Colors.white, fontSize: 16, height: 1.5))),
+                        Expanded(
+                          child: Text(
+                            resume.bulletPoints[index],
+                            style: const TextStyle(color: Colors.white, fontSize: 16, height: 1.5),
+                          ),
+                        ),
                       ],
                     ),
                   );
@@ -265,7 +316,16 @@ class _MethodCardRect extends StatelessWidget {
           child: Row(children: [
             Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: color.withOpacity(0.2), borderRadius: BorderRadius.circular(15)), child: Icon(icon, color: color, size: 30)),
             const SizedBox(width: 20),
-            Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)), Text(subtitle, style: const TextStyle(fontSize: 13, color: Colors.white54))])),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                  Text(subtitle, style: const TextStyle(fontSize: 13, color: Colors.white54)),
+                ],
+              ),
+            ),
             const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white24, size: 18),
           ]),
         ),
@@ -280,7 +340,21 @@ class GlassContainer extends StatelessWidget {
   const GlassContainer({super.key, required this.child, this.height});
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(borderRadius: BorderRadius.circular(25), child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20), child: Container(height: height, decoration: BoxDecoration(color: Colors.white.withOpacity(0.1), borderRadius: BorderRadius.circular(25), border: Border.all(color: Colors.white.withOpacity(0.1))), child: child)));
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(25),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        child: Container(
+          height: height,
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(25),
+            border: Border.all(color: Colors.white.withOpacity(0.1)),
+          ),
+          child: child,
+        ),
+      ),
+    );
   }
 }
 
@@ -303,6 +377,7 @@ class GlassBottomNav extends StatelessWidget {
       ),
     );
   }
+
   Widget _navIcon(IconData icon, int index) => GestureDetector(
     onTap: () => onTap(index),
     child: Icon(icon, color: currentIndex == index ? Colors.blueAccent : Colors.white54),

@@ -1,3 +1,4 @@
+import 'package:MentorMe/parametres/parametre.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'Acceuil/acceuil.dart';
@@ -41,7 +42,7 @@ class _MainScaffoldState extends State<MainScaffold> {
     const HomePage(),
     const Center(child: Text("Bibliothèque")),
     const MusicPage(),
-    const Center(child: Text("Paramètres")),
+    const ParametrePage()
   ];
 
   @override

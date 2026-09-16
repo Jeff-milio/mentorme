@@ -1,11 +1,12 @@
 import 'dart:io';
 import 'dart:ui';
 import 'dart:math';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:syncfusion_flutter_pdf/pdf.dart';
+import 'package:http/http.dart' as http;
 
 // --- MODÈLE ---
 class Flashcard {
@@ -86,7 +87,7 @@ class HomePage extends StatelessWidget {
   }
 }
 
-// --- OVERLAY DE SCAN (SÉLECTION SOURCE & NOMBRE) ---
+// --- OVERLAY DE SCAN (SÉLECTION SOURCE, NOMBRE & CONNEXION SERVEUR) ---
 class FlashcardScanOverlay extends StatefulWidget {
   const FlashcardScanOverlay({super.key});
   @override
@@ -98,6 +99,9 @@ class _FlashcardScanOverlayState extends State<FlashcardScanOverlay> {
   double _questionCount = 5;
   bool _isLoading = false;
 
+  // Adresse du serveur FastAPI (10.0.2.2 pour émulateur Android, 127.0.0.1 pour iOS/Desktop)
+  final String _backendUrl = "http://192.168.112.1:5000/generate-flashcards";
+
   // Sélection PDF
   Future<void> _pickPDF() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
@@ -105,13 +109,7 @@ class _FlashcardScanOverlayState extends State<FlashcardScanOverlay> {
       allowedExtensions: ['pdf'],
     );
     if (result != null) {
-      setState(() {
-        _filePath = result.files.single.path;
-        _isLoading = true;
-      });
-      // Simulation lecture (extraction texte ici plus tard)
-      await Future.delayed(const Duration(seconds: 1));
-      setState(() => _isLoading = false);
+      setState(() => _filePath = result.files.single.path);
     }
   }
 
@@ -119,21 +117,52 @@ class _FlashcardScanOverlayState extends State<FlashcardScanOverlay> {
   Future<void> _pickImage() async {
     final XFile? image = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (image != null) {
-      setState(() {
-        _filePath = image.path;
-        _isLoading = true;
-      });
-      // Simulation OCR
-      await Future.delayed(const Duration(seconds: 1));
-      setState(() => _isLoading = false);
+      setState(() => _filePath = image.path);
     }
   }
 
-  List<Flashcard> _generateCards() {
-    // Liste fictive pour l'exemple (à lier à Gemini)
-    return List.generate(_questionCount.round(), (i) =>
-        Flashcard(question: "Question ${i + 1} du document", answer: "Ceci est la réponse extraite du cours.")
-    );
+  // Envoi au serveur Python FastAPI
+  Future<void> _generateCardsAndNavigate() async {
+    if (_filePath == null) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      var request = http.MultipartRequest('POST', Uri.parse(_backendUrl));
+      request.files.add(await http.MultipartFile.fromPath('file', _filePath!));
+      request.fields['count'] = _questionCount.round().toString();
+
+      var streamedResponse = await request.send();
+      var response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        List<dynamic> jsonList = jsonDecode(response.body);
+        List<Flashcard> cards = jsonList.map((item) => Flashcard(
+          question: item['question'] ?? '',
+          answer: item['answer'] ?? '',
+        )).toList();
+
+        if (mounted) {
+          Navigator.pop(context);
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => FlashcardPlayPage(cards: cards)),
+          );
+        }
+      } else {
+        _showError("Erreur serveur (${response.statusCode}): ${response.body}");
+      }
+    } catch (e) {
+      _showError("Erreur de connexion : $e");
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _showError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
   @override
@@ -143,7 +172,16 @@ class _FlashcardScanOverlayState extends State<FlashcardScanOverlay> {
         height: MediaQuery.of(context).size.height * 0.6,
         padding: const EdgeInsets.all(30),
         child: _isLoading
-            ? const Center(child: CircularProgressIndicator(color: Colors.purpleAccent))
+            ? const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: Colors.purpleAccent),
+              SizedBox(height: 15),
+              Text("Génération des cartes par Gemini...", style: TextStyle(color: Colors.white70)),
+            ],
+          ),
+        )
             : Column(
           children: [
             const Text("Scanner un cours", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
@@ -158,12 +196,12 @@ class _FlashcardScanOverlayState extends State<FlashcardScanOverlay> {
             const SizedBox(height: 25),
             if (_filePath != null)
               Text("Fichier prêt ✔", style: TextStyle(color: Colors.purpleAccent.shade100, fontWeight: FontWeight.bold)),
-
             const Spacer(),
             Text("Nombre de cartes : ${_questionCount.round()}", style: const TextStyle(color: Colors.white70)),
             Slider(
               value: _questionCount,
-              min: 3, max: 15,
+              min: 3,
+              max: 15,
               divisions: 12,
               activeColor: Colors.purpleAccent,
               inactiveColor: Colors.white10,
@@ -176,11 +214,7 @@ class _FlashcardScanOverlayState extends State<FlashcardScanOverlay> {
                 minimumSize: const Size(double.infinity, 55),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
               ),
-              onPressed: _filePath == null ? null : () {
-                var cards = _generateCards();
-                Navigator.pop(context);
-                Navigator.push(context, MaterialPageRoute(builder: (context) => FlashcardPlayPage(cards: cards)));
-              },
+              onPressed: _filePath == null ? null : _generateCardsAndNavigate,
               child: const Text("Générer les Flashcards", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             )
           ],
@@ -251,8 +285,13 @@ class _FlashcardPlayPageState extends State<FlashcardPlayPage> {
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.white10, minimumSize: const Size(double.infinity, 60), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
                 onPressed: () {
                   if (_index < widget.cards.length - 1) {
-                    setState(() { _index++; _isFlipped = false; });
-                  } else { Navigator.pop(context); }
+                    setState(() {
+                      _index++;
+                      _isFlipped = false;
+                    });
+                  } else {
+                    Navigator.pop(context);
+                  }
                 },
                 child: const Text("Suivant", style: TextStyle(color: Colors.white, fontSize: 18)),
               ),
@@ -270,11 +309,12 @@ class _FlashcardPlayPageState extends State<FlashcardPlayPage> {
       borderRadius: BorderRadius.circular(30),
       border: Border.all(color: Colors.white.withOpacity(0.1)),
     ),
-    child: Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-      Text(label, style: TextStyle(color: accent.withOpacity(0.5), fontWeight: FontWeight.bold)),
-      const SizedBox(height: 20),
-      Text(text, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w600)),
-    ])),
+    child: Center(
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Text(label, style: TextStyle(color: accent.withOpacity(0.5), fontWeight: FontWeight.bold)),
+          const SizedBox(height: 20),
+          Text(text, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w600)),
+        ])),
   );
 }
 
@@ -297,7 +337,16 @@ class _MethodCardRect extends StatelessWidget {
           child: Row(children: [
             Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: color.withOpacity(0.2), borderRadius: BorderRadius.circular(15)), child: Icon(icon, color: color, size: 30)),
             const SizedBox(width: 20),
-            Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)), Text(subtitle, style: const TextStyle(fontSize: 13, color: Colors.white54))])),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                  Text(subtitle, style: const TextStyle(fontSize: 13, color: Colors.white54)),
+                ],
+              ),
+            ),
             const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white24, size: 18),
           ]),
         ),
@@ -312,7 +361,21 @@ class GlassContainer extends StatelessWidget {
   const GlassContainer({super.key, required this.child, this.height});
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(borderRadius: BorderRadius.circular(25), child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20), child: Container(height: height, decoration: BoxDecoration(color: Colors.white.withOpacity(0.1), borderRadius: BorderRadius.circular(25), border: Border.all(color: Colors.white.withOpacity(0.1))), child: child)));
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(25),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        child: Container(
+          height: height,
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(25),
+            border: Border.all(color: Colors.white.withOpacity(0.1)),
+          ),
+          child: child,
+        ),
+      ),
+    );
   }
 }
 
@@ -335,6 +398,7 @@ class GlassBottomNav extends StatelessWidget {
       ),
     );
   }
+
   Widget _navIcon(IconData icon, int index) => GestureDetector(
     onTap: () => onTap(index),
     child: Icon(icon, color: currentIndex == index ? Colors.blueAccent : Colors.white54),

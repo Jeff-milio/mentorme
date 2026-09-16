@@ -17,7 +17,7 @@ class _ParametrePageState extends State<ParametrePage> {
   Future<void> _contactUs() async {
     final Uri emailLaunchUri = Uri(
       scheme: 'mailto',
-      path: 'support@scoutify.com', // Ton adresse email
+      path: 'support@scoutify.com',
       queryParameters: {
         'subject': 'Demande de support - Scoutify',
       },
@@ -32,10 +32,109 @@ class _ParametrePageState extends State<ParametrePage> {
     }
   }
 
+  // Modal d'informations "À propos"
+  void _showAboutModal(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) {
+        return ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1D1E33).withOpacity(0.95),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+                border: Border.all(color: Colors.white.withOpacity(0.1)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white24,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(height: 25),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF8D122B).withOpacity(0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.music_note_rounded,
+                      color: Color(0xFF8D122B),
+                      size: 40,
+                    ),
+                  ),
+                  const SizedBox(height: 15),
+                  Text(
+                    "Scoutify",
+                    style: GoogleFonts.poppins(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  Text(
+                    "Version 1.0.0",
+                    style: GoogleFonts.poppins(
+                      fontSize: 14,
+                      color: Colors.white54,
+                    ),
+                  ),
+                  const SizedBox(height: 15),
+                  Text(
+                    "Votre plateforme de musique et d'animation dédiée au monde scout.",
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(
+                      fontSize: 14,
+                      color: Colors.white70,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 25),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF8D122B),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      onPressed: () => Navigator.pop(context),
+                      child: Text(
+                        "Fermer",
+                        style: GoogleFonts.poppins(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0E21), // Fond bleu très sombre cohérent
+      backgroundColor: const Color(0xFF0A0E21),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 20.0),
@@ -90,7 +189,7 @@ class _ParametrePageState extends State<ParametrePage> {
               title: "Nous contacter",
               subtitle: "Une question ou un bug ?",
               icon: Icons.alternate_email_rounded,
-              color: const Color(0xFF8D122B), // Ton bordeaux fétiche
+              color: const Color(0xFF8D122B),
               onTap: _contactUs,
             ),
 
@@ -99,9 +198,7 @@ class _ParametrePageState extends State<ParametrePage> {
               subtitle: "Version 1.0.0",
               icon: Icons.info_outline_rounded,
               color: Colors.orangeAccent,
-              onTap: () {
-                // Logique pour afficher les crédits
-              },
+              onTap: () => _showAboutModal(context),
             ),
 
             const SizedBox(height: 100),

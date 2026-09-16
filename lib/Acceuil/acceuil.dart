@@ -1,94 +1,100 @@
 import 'dart:ui';
+import 'package:MentorMe/Acceuil/qcm/qcm.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:learnflutter/Acceuil/qcm/qcm.dart';
 import 'ResumeIA/Resume.dart';
 import 'VraiOFaux/VraiOFaux.dart';
 import 'flashcard/flashcard.dart';
-
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 20.0),
-        children: [
-          const SizedBox(height: 30),
-
-          // --- TITRE ET LOGO ---
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Text(
-                "MentorMe",
-                style: GoogleFonts.poppins(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
+    return Scaffold(
+      appBar: AppBar(
+        toolbarHeight: 80,
+        backgroundColor: const Color(0xff01143b),
+        elevation: 0,
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Image.asset(
+              'assets/images/logo.png',
+              height: 50,
+            ),
+            Image.asset(
+              'assets/images/ispmlogo.png',
+              height: 60,
+              fit: BoxFit.contain,
+            ),
+          ],
+        ),
+      ),
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF000B18), Color(0xFF001F3F), Colors.black],
+          ),
+        ),
+        child: ListView(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 25),
+          children: [
+            Text(
+              "Choisissez votre méthode d'étude",
+              style: GoogleFonts.poppins(
+                color: Colors.white60,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
               ),
-              // Ajout du logo ISPM
-              Image.asset(
-                'assets/images/ispmlogo.png', // Vérifie bien que le chemin est identique dans ton pubspec.yaml
-                height: 80, // Taille réduite comme demandé
-                fit: BoxFit.contain,
-              ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 25),
 
-          const Text(
-            "Choisissez votre méthode d'étude",
-            style: TextStyle(color: Colors.white60, fontSize: 16),
-          ),
-          const SizedBox(height: 30),
+            // --- QCM ---
+            _MethodCardRect(
+              title: "QCM Interactif",
+              subtitle: "Scanner PDF ou Image",
+              icon: Icons.qr_code_scanner_rounded,
+              color: Colors.blueAccent,
+              onTap: () => _showScanDialog(context),
+            ),
 
-          // --- QCM ---
-          _MethodCardRect(
-            title: "QCM Interactif",
-            subtitle: "Scanner PDF ou Image",
-            icon: Icons.qr_code_scanner_rounded,
-            color: Colors.blueAccent,
-            onTap: () => _showScanDialog(context),
-          ),
+            // --- FLASHCARDS ---
+            _MethodCardRect(
+              title: "Flashcards",
+              subtitle: "Mémorisation active",
+              icon: Icons.style_rounded,
+              color: Colors.purpleAccent,
+              onTap: () => _showFlashcardDialog(context),
+            ),
 
-          // --- FLASHCARDS ---
-          _MethodCardRect(
-            title: "Flashcards",
-            subtitle: "Mémorisation active",
-            icon: Icons.style_rounded,
-            color: Colors.purpleAccent,
-            onTap: () => _showFlashcardDialog(context),
-          ),
+            // --- RESUME IA ---
+            _MethodCardRect(
+              title: "Résumé IA",
+              subtitle: "Synthèse de vos cours",
+              icon: Icons.auto_awesome_rounded,
+              color: Colors.orangeAccent,
+              onTap: () => _showResumeDialog(context),
+            ),
 
-          // --- RÉSUMÉ IA ---
-          _MethodCardRect(
-            title: "Résumé IA",
-            subtitle: "Synthèse de vos cours",
-            icon: Icons.auto_awesome_rounded,
-            color: Colors.orangeAccent,
-            onTap: () => _showResumeDialog(context),
-          ),
-
-          // --- VRAI OU FAUX ---
-          _MethodCardRect(
-            title: "Vrai ou Faux",
-            subtitle: "Test rapide de connaissances",
-            icon: Icons.flaky_rounded,
-            color: Colors.greenAccent,
-            onTap: () => _showvfDialog(context),
-          ),
-
-          const SizedBox(height: 100),
-        ],
+            // --- VRAI OU FAUX ---
+            _MethodCardRect(
+              title: "Vrai ou Faux",
+              subtitle: "Test rapide de connaissances",
+              icon: Icons.flaky_rounded,
+              color: Colors.greenAccent,
+              onTap: () => _showvfDialog(context),
+            ),
+          ],
+        ),
       ),
     );
   }
-
-  // --- LOGIQUE DES DIALOGUES ---
 
   void _showScanDialog(BuildContext context) {
     showModalBottomSheet(
@@ -171,8 +177,21 @@ class _MethodCardRect extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-                      Text(subtitle, style: const TextStyle(fontSize: 13, color: Colors.white54)),
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Colors.white54,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -194,7 +213,13 @@ class GlassContainer extends StatelessWidget {
   final double blur;
   final double opacity;
 
-  const GlassContainer({super.key, required this.child, this.height, this.blur = 20, this.opacity = 0.1});
+  const GlassContainer({
+    super.key,
+    required this.child,
+    this.height,
+    this.blur = 20,
+    this.opacity = 0.1,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -222,7 +247,11 @@ class GlassBottomNav extends StatelessWidget {
   final int currentIndex;
   final Function(int) onTap;
 
-  const GlassBottomNav({super.key, required this.currentIndex, required this.onTap});
+  const GlassBottomNav({
+    super.key,
+    required this.currentIndex,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -256,7 +285,11 @@ class GlassBottomNav extends StatelessWidget {
           color: isSelected ? Colors.blueAccent.withOpacity(0.2) : Colors.transparent,
           borderRadius: BorderRadius.circular(15),
         ),
-        child: Icon(icon, color: isSelected ? Colors.blueAccent : Colors.white54, size: 26),
+        child: Icon(
+          icon,
+          color: isSelected ? Colors.blueAccent : Colors.white54,
+          size: 26,
+        ),
       ),
     );
   }
