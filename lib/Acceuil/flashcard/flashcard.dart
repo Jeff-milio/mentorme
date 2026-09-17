@@ -10,6 +10,9 @@ import 'package:http/http.dart' as http;
 
 import '../ResumeIA/Resume.dart';
 
+// N'oubliez pas d'importer le service d'historique s'il est dans un autre fichier :
+// import 'history_service.dart';
+
 // ==========================================
 // 1. MODÈLE FLASHCARD
 // ==========================================
@@ -24,20 +27,9 @@ class Flashcard {
 }
 
 // ==========================================
-// 2. BOUTON D'ACCUEIL POUR FLASHCARDS
+// 2. FONCTION D'OUVERTURE DE L'OVERLAY
 // ==========================================
-// À ajouter dans la ListView de votre HomePage :
-/*
-_MethodCardRect(
-  title: "Flashcards IA",
-  subtitle: "Générer des cartes de révision depuis un document",
-  icon: Icons.style_rounded,
-  color: Colors.purpleAccent,
-  onTap: () => _showFlashcardScan(context),
-),
-*/
-
-void _showFlashcardScan(BuildContext context) {
+void showFlashcardScan(BuildContext context) {
   showModalBottomSheet(
     context: context,
     backgroundColor: Colors.transparent,
@@ -62,7 +54,7 @@ class _FlashcardScanOverlayState extends State<FlashcardScanOverlay> {
   double _cardCount = 5;
   bool _isLoading = false;
 
-  // URL de votre backend Render
+  // URL de votre backend local ou Render
   final String _backendUrl = "http://192.168.2.245:5000";
 
   Future<void> _pickPDF() async {
@@ -102,7 +94,6 @@ class _FlashcardScanOverlayState extends State<FlashcardScanOverlay> {
       request.files.add(await http.MultipartFile.fromPath('file', _filePath!));
       request.fields['count'] = _cardCount.round().toString();
 
-      // Timeout à 90 secondes pour gérer le réveil de Render + la génération IA
       var streamedResponse = await request.send().timeout(
         const Duration(seconds: 90),
         onTimeout: () {
@@ -113,9 +104,27 @@ class _FlashcardScanOverlayState extends State<FlashcardScanOverlay> {
       var response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
+        // -----------------------------------------------------------
+        // AJOUT : SAUVEGARDE AUTOMATIQUE DANS LA BIBLIOTHÈQUE / HISTORIQUE
+        // -----------------------------------------------------------
+        final now = DateTime.now();
+        final formattedDate =
+            "${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year} à ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
+
+        final historyItem = HistoryItem(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          title: _fileName ?? "Flashcards IA",
+          type: "flashcards", // Type pour le filtre de la Bibliothèque
+          date: formattedDate,
+          dataJson: response.body, // Sauvegarde du JSON brut
+        );
+
+        await HistoryService.saveItem(historyItem);
+        // -----------------------------------------------------------
+
         List<dynamic> jsonList = jsonDecode(response.body);
 
-        // Décodage flexible (prend en compte question/answer ou front/back)
+        // Décodage flexible (question/answer ou front/back)
         List<Flashcard> cards = jsonList.map((c) {
           return Flashcard(
             question: c['question'] ?? c['front'] ?? c['recto'] ?? "Question manquante",
@@ -143,7 +152,7 @@ class _FlashcardScanOverlayState extends State<FlashcardScanOverlay> {
         _showError("Erreur serveur (${response.statusCode}) : ${response.body}");
       }
     } on TimeoutException catch (_) {
-      _showError("Délai dépassé. Le serveur Render est en train de sortir de veille, réessayez.");
+      _showError("Délai dépassé. Le serveur est en train de sortir de veille, réessayez.");
     } on SocketException catch (_) {
       _showError("Erreur de connexion Internet. Vérifiez votre réseau.");
     } catch (e) {
@@ -184,7 +193,7 @@ class _FlashcardScanOverlayState extends State<FlashcardScanOverlay> {
               ),
               SizedBox(height: 8),
               Text(
-                "Sortie de veille du serveur et analyse IA (30-60s max)...",
+                "Analyse IA du document en cours...",
                 style: TextStyle(color: Colors.white54, fontSize: 12),
                 textAlign: TextAlign.center,
               ),
@@ -366,6 +375,7 @@ class _FlashcardPlayPageState extends State<FlashcardPlayPage> {
               color: Colors.purpleAccent,
             ),
             const SizedBox(height: 30),
+
             // CARTE INTERACTIVE (CLIC POUR RETOURNER)
             Expanded(
               child: GestureDetector(
@@ -434,6 +444,7 @@ class _FlashcardPlayPageState extends State<FlashcardPlayPage> {
               ),
             ),
             const SizedBox(height: 30),
+
             // BOUTONS DE NAVIGATION
             Row(
               children: [

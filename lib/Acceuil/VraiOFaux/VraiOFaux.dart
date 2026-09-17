@@ -7,8 +7,70 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart'; // AJOUTÉ POUR LA SAUVEGARDE
 
-// --- MODÈLE ---
+// ==========================================
+// --- MODÈLES DE SAUVEGARDE ET SERVICES ---
+// ==========================================
+class HistoryItem {
+  final String id;
+  final String title;
+  final String type; // 'qcm', 'flashcards', 'summary', 'true_false'
+  final String date;
+  final String dataJson;
+
+  HistoryItem({
+    required this.id,
+    required this.title,
+    required this.type,
+    required this.date,
+    required this.dataJson,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'type': type,
+    'date': date,
+    'dataJson': dataJson,
+  };
+
+  factory HistoryItem.fromJson(Map<String, dynamic> json) => HistoryItem(
+    id: json['id'] ?? '',
+    title: json['title'] ?? 'Sans titre',
+    type: json['type'] ?? 'true_false',
+    date: json['date'] ?? '',
+    dataJson: json['dataJson'] ?? '[]',
+  );
+}
+
+class HistoryService {
+  static const String _key = 'user_generated_history';
+
+  static Future<List<HistoryItem>> getHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? itemsString = prefs.getString(_key);
+    if (itemsString == null || itemsString.isEmpty) return [];
+    try {
+      final List<dynamic> jsonList = jsonDecode(itemsString);
+      return jsonList.map((e) => HistoryItem.fromJson(e)).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  static Future<void> saveItem(HistoryItem item) async {
+    final prefs = await SharedPreferences.getInstance();
+    List<HistoryItem> currentList = await getHistory();
+    currentList.insert(0, item);
+    final String encoded = jsonEncode(currentList.map((e) => e.toJson()).toList());
+    await prefs.setString(_key, encoded);
+  }
+}
+
+// ==========================================
+// --- MODÈLE VRAI / FAUX ---
+// ==========================================
 class TrueFalseItem {
   final String statement;
   final bool isTrue;
@@ -21,7 +83,9 @@ class TrueFalseItem {
   });
 }
 
+// ==========================================
 // --- OVERLAY SÉLECTION & SCANNAGE ---
+// ==========================================
 class TrueFalseScanOverlay extends StatefulWidget {
   const TrueFalseScanOverlay({super.key});
 
@@ -35,7 +99,7 @@ class _TrueFalseScanOverlayState extends State<TrueFalseScanOverlay> {
   double _questionCount = 5;
   bool _isLoading = false;
 
-  // URL du backend Render
+  // URL de votre backend local
   final String _backendUrl = "http://192.168.2.245:5000";
 
   Future<void> _pickPDF() async {
@@ -74,7 +138,6 @@ class _TrueFalseScanOverlayState extends State<TrueFalseScanOverlay> {
       request.files.add(await http.MultipartFile.fromPath('file', _filePath!));
       request.fields['count'] = _questionCount.round().toString();
 
-      // Timeout à 90 secondes pour gérer la sortie de veille Render + génération IA
       var streamedResponse = await request.send().timeout(
         const Duration(seconds: 90),
         onTimeout: () {
@@ -85,9 +148,26 @@ class _TrueFalseScanOverlayState extends State<TrueFalseScanOverlay> {
       var response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
+        // -----------------------------------------------------------
+        // AJOUT : SAUVEGARDE AUTOMATIQUE DANS LA BIBLIOTHÈQUE / HISTORIQUE
+        // -----------------------------------------------------------
+        final now = DateTime.now();
+        final formattedDate =
+            "${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year} à ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
+
+        final historyItem = HistoryItem(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          title: _fileName ?? "Vrai / Faux IA",
+          type: "true_false", // Type pour le filtre Vrai/Faux
+          date: formattedDate,
+          dataJson: response.body, // Sauvegarde du JSON brut
+        );
+
+        await HistoryService.saveItem(historyItem);
+        // -----------------------------------------------------------
+
         List<dynamic> jsonList = jsonDecode(response.body);
 
-        // Décodage souple des clés JSON (statement, isTrue, explanation)
         List<TrueFalseItem> items = jsonList.map((item) {
           return TrueFalseItem(
             statement: item['statement'] ?? item['question'] ?? item['affirmation'] ?? '',
@@ -116,7 +196,7 @@ class _TrueFalseScanOverlayState extends State<TrueFalseScanOverlay> {
         _showError("Erreur serveur (${response.statusCode}) : ${response.body}");
       }
     } on TimeoutException catch (_) {
-      _showError("Délai dépassé. Le serveur Render redémarre, réessayez dans 10 secondes.");
+      _showError("Délai dépassé. Le serveur redémarre, réessayez dans 10 secondes.");
     } on SocketException catch (_) {
       _showError("Erreur de connexion Internet. Vérifiez votre réseau.");
     } catch (e) {
@@ -215,7 +295,9 @@ class _TrueFalseScanOverlayState extends State<TrueFalseScanOverlay> {
   );
 }
 
+// ==========================================
 // --- ÉCRAN INTERACTIF VRAI / FAUX ---
+// ==========================================
 class TrueFalseViewPage extends StatefulWidget {
   final List<TrueFalseItem> items;
   const TrueFalseViewPage({super.key, required this.items});

@@ -1,3 +1,4 @@
+import 'package:MentorMe/Bibliotheque/Bibliotheque.dart';
 import 'package:MentorMe/parametres/parametre.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -40,7 +41,7 @@ class _MainScaffoldState extends State<MainScaffold> {
 
   final List<Widget> _pages = [
     const HomePage(),
-    const Center(child: Text("Bibliothèque")),
+    const LibraryPage(),
     const MusicPage(),
     const ParametrePage()
   ];

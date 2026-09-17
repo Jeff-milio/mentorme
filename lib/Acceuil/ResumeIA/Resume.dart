@@ -7,8 +7,68 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart'; // AJOUTÉ POUR LA SAUVEGARDE
 
-// --- MODÈLE ---
+// ==========================================
+// --- MODÈLES DE SAUVEGARDE ET SERVICES ---
+// ==========================================
+class HistoryItem {
+  final String id;
+  final String title;
+  final String type; // 'qcm', 'flashcards', 'summary', 'true_false'
+  final String date;
+  final String dataJson;
+
+  HistoryItem({
+    required this.id,
+    required this.title,
+    required this.type,
+    required this.date,
+    required this.dataJson,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'type': type,
+    'date': date,
+    'dataJson': dataJson,
+  };
+
+  factory HistoryItem.fromJson(Map<String, dynamic> json) => HistoryItem(
+    id: json['id'] ?? '',
+    title: json['title'] ?? 'Sans titre',
+    type: json['type'] ?? 'summary',
+    date: json['date'] ?? '',
+    dataJson: json['dataJson'] ?? '{}',
+  );
+}
+
+class HistoryService {
+  static const String _key = 'user_generated_history';
+
+  static Future<List<HistoryItem>> getHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? itemsString = prefs.getString(_key);
+    if (itemsString == null || itemsString.isEmpty) return [];
+    try {
+      final List<dynamic> jsonList = jsonDecode(itemsString);
+      return jsonList.map((e) => HistoryItem.fromJson(e)).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  static Future<void> saveItem(HistoryItem item) async {
+    final prefs = await SharedPreferences.getInstance();
+    List<HistoryItem> currentList = await getHistory();
+    currentList.insert(0, item);
+    final String encoded = jsonEncode(currentList.map((e) => e.toJson()).toList());
+    await prefs.setString(_key, encoded);
+  }
+}
+
+// --- MODÈLE LOCAL RÉSUMÉ ---
 class Resume {
   final String title;
   final List<String> bulletPoints;
@@ -102,7 +162,6 @@ class _ResumeScanOverlayState extends State<ResumeScanOverlay> {
   double _bulletCount = 5;
   bool _isLoading = false;
 
-  // CORRECTION : URL Render en ligne
   final String _backendUrl = "http://192.168.2.245:5000";
 
   Future<void> _pickPDF() async {
@@ -134,7 +193,6 @@ class _ResumeScanOverlayState extends State<ResumeScanOverlay> {
     setState(() => _isLoading = true);
 
     try {
-      // CORRECTION : ciblage de /generate-summary
       var request = http.MultipartRequest(
         'POST',
         Uri.parse('$_backendUrl/generate-summary'),
@@ -142,7 +200,6 @@ class _ResumeScanOverlayState extends State<ResumeScanOverlay> {
       request.files.add(await http.MultipartFile.fromPath('file', _filePath!));
       request.fields['count'] = _bulletCount.round().toString();
 
-      // CORRECTION : Timeout à 90s pour le temps de réponse du serveur Render + Gemini
       var streamedResponse = await request.send().timeout(
         const Duration(seconds: 90),
         onTimeout: () {
@@ -169,15 +226,33 @@ class _ResumeScanOverlayState extends State<ResumeScanOverlay> {
           }
         }
 
-        Resume resumeData = Resume(
-          title: jsonResponse['title'] ?? _fileName ?? "Résumé du cours",
-          bulletPoints: points,
-        );
-
         if (points.isEmpty) {
           _showError("Aucun point clé n'a pu être extrait de ce document.");
           return;
         }
+
+        // -----------------------------------------------------------
+        // AJOUT : SAUVEGARDE AUTOMATIQUE DANS LA BIBLIOTHÈQUE
+        // -----------------------------------------------------------
+        final now = DateTime.now();
+        final formattedDate =
+            "${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year} à ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
+
+        final historyItem = HistoryItem(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          title: jsonResponse['title'] ?? _fileName ?? "Résumé du cours",
+          type: "summary", // Type pour le filtre Résumé
+          date: formattedDate,
+          dataJson: response.body, // Sauvegarde de la réponse JSON brute
+        );
+
+        await HistoryService.saveItem(historyItem);
+        // -----------------------------------------------------------
+
+        Resume resumeData = Resume(
+          title: jsonResponse['title'] ?? _fileName ?? "Résumé du cours",
+          bulletPoints: points,
+        );
 
         if (mounted) {
           Navigator.pop(context);
@@ -192,7 +267,7 @@ class _ResumeScanOverlayState extends State<ResumeScanOverlay> {
         _showError("Erreur du serveur (${response.statusCode}): ${response.body}");
       }
     } on TimeoutException catch (_) {
-      _showError("Délai dépassé. Le serveur Render redémarre, réessayez dans 10 secondes.");
+      _showError("Délai dépassé. Le serveur redémarre, réessayez dans 10 secondes.");
     } on SocketException catch (_) {
       _showError("Erreur de connexion Internet. Vérifiez votre réseau.");
     } catch (e) {
