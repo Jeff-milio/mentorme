@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:ui';
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:file_picker/file_picker.dart';
@@ -101,8 +102,8 @@ class _ResumeScanOverlayState extends State<ResumeScanOverlay> {
   double _bulletCount = 5;
   bool _isLoading = false;
 
-  // URL du serveur (10.0.2.2 pour Émulateur Android, 127.0.0.1 pour iOS/Desktop)
-  final String _backendUrl = "http://10.0.2.2:5000/generate-summary";
+  // CORRECTION : URL Render en ligne
+  final String _backendUrl = "http://192.168.2.245:5000";
 
   Future<void> _pickPDF() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
@@ -133,19 +134,50 @@ class _ResumeScanOverlayState extends State<ResumeScanOverlay> {
     setState(() => _isLoading = true);
 
     try {
-      var request = http.MultipartRequest('POST', Uri.parse(_backendUrl));
+      // CORRECTION : ciblage de /generate-summary
+      var request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$_backendUrl/generate-summary'),
+      );
       request.files.add(await http.MultipartFile.fromPath('file', _filePath!));
       request.fields['count'] = _bulletCount.round().toString();
 
-      var streamedResponse = await request.send();
+      // CORRECTION : Timeout à 90s pour le temps de réponse du serveur Render + Gemini
+      var streamedResponse = await request.send().timeout(
+        const Duration(seconds: 90),
+        onTimeout: () {
+          throw TimeoutException("Le serveur ou l'IA a mis trop de temps à répondre.");
+        },
+      );
+
       var response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
         Map<String, dynamic> jsonResponse = jsonDecode(response.body);
+
+        // Extraction tolérante des points clés
+        List<String> points = [];
+        if (jsonResponse['bulletPoints'] != null) {
+          points = List<String>.from(jsonResponse['bulletPoints']);
+        } else if (jsonResponse['points'] != null) {
+          points = List<String>.from(jsonResponse['points']);
+        } else if (jsonResponse['summary'] != null) {
+          if (jsonResponse['summary'] is List) {
+            points = List<String>.from(jsonResponse['summary']);
+          } else {
+            points = [jsonResponse['summary'].toString()];
+          }
+        }
+
         Resume resumeData = Resume(
-          title: jsonResponse['title'] ?? _fileName ?? "Résumé",
-          bulletPoints: List<String>.from(jsonResponse['bulletPoints'] ?? []),
+          title: jsonResponse['title'] ?? _fileName ?? "Résumé du cours",
+          bulletPoints: points,
         );
+
+        if (points.isEmpty) {
+          _showError("Aucun point clé n'a pu être extrait de ce document.");
+          return;
+        }
 
         if (mounted) {
           Navigator.pop(context);
@@ -154,9 +186,15 @@ class _ResumeScanOverlayState extends State<ResumeScanOverlay> {
             MaterialPageRoute(builder: (context) => ResumeViewPage(resume: resumeData)),
           );
         }
+      } else if (response.statusCode == 503) {
+        _showError("Le service IA est temporairement surchargé. Réessayez dans quelques secondes.");
       } else {
         _showError("Erreur du serveur (${response.statusCode}): ${response.body}");
       }
+    } on TimeoutException catch (_) {
+      _showError("Délai dépassé. Le serveur Render redémarre, réessayez dans 10 secondes.");
+    } on SocketException catch (_) {
+      _showError("Erreur de connexion Internet. Vérifiez votre réseau.");
     } catch (e) {
       _showError("Impossible de contacter le serveur : $e");
     } finally {
@@ -166,7 +204,13 @@ class _ResumeScanOverlayState extends State<ResumeScanOverlay> {
 
   void _showError(String message) {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
@@ -183,7 +227,16 @@ class _ResumeScanOverlayState extends State<ResumeScanOverlay> {
             children: [
               CircularProgressIndicator(color: Colors.blueAccent),
               SizedBox(height: 15),
-              Text("Analyse et génération du résumé par Gemini...", style: TextStyle(color: Colors.white70)),
+              Text(
+                "Analyse et génération du résumé...",
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+              SizedBox(height: 8),
+              Text(
+                "Sortie de veille du serveur et analyse IA (30-60s max)...",
+                style: TextStyle(color: Colors.white54, fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
             ],
           ),
         )
@@ -259,7 +312,7 @@ class ResumeViewPage extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(resume.title, style: GoogleFonts.poppins(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+            Text(resume.title, style: GoogleFonts.poppins(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
             const Divider(color: Colors.white10, height: 30),
             Expanded(
               child: ListView.builder(
@@ -281,7 +334,7 @@ class ResumeViewPage extends StatelessWidget {
                         Expanded(
                           child: Text(
                             resume.bulletPoints[index],
-                            style: const TextStyle(color: Colors.white, fontSize: 16, height: 1.5),
+                            style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.5),
                           ),
                         ),
                       ],

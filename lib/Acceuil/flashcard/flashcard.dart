@@ -1,159 +1,153 @@
-import 'dart:io';
 import 'dart:ui';
-import 'dart:math';
 import 'dart:convert';
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 
-// --- MODÈLE ---
+import '../ResumeIA/Resume.dart';
+
+// ==========================================
+// 1. MODÈLE FLASHCARD
+// ==========================================
 class Flashcard {
-  final String question;
-  final String answer;
-  Flashcard({required this.question, required this.answer});
+  final String question; // Recto de la carte
+  final String answer;   // Verso de la carte
+
+  Flashcard({
+    required this.question,
+    required this.answer,
+  });
 }
 
-void main() => runApp(const MaterialApp(home: MainScaffold(), debugShowCheckedModeBanner: false));
+// ==========================================
+// 2. BOUTON D'ACCUEIL POUR FLASHCARDS
+// ==========================================
+// À ajouter dans la ListView de votre HomePage :
+/*
+_MethodCardRect(
+  title: "Flashcards IA",
+  subtitle: "Générer des cartes de révision depuis un document",
+  icon: Icons.style_rounded,
+  color: Colors.purpleAccent,
+  onTap: () => _showFlashcardScan(context),
+),
+*/
 
-// --- STRUCTURE PRINCIPALE ---
-class MainScaffold extends StatefulWidget {
-  const MainScaffold({super.key});
-  @override
-  State<MainScaffold> createState() => _MainScaffoldState();
+void _showFlashcardScan(BuildContext context) {
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    builder: (context) => const FlashcardScanOverlay(),
+  );
 }
 
-class _MainScaffoldState extends State<MainScaffold> {
-  int _currentIndex = 0;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      extendBody: true,
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF000B18), Color(0xFF001F3F), Colors.black],
-          ),
-        ),
-        child: _currentIndex == 0 ? const HomePage() : Center(child: Text("Page $_currentIndex", style: const TextStyle(color: Colors.white))),
-      ),
-      bottomNavigationBar: GlassBottomNav(
-        currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
-      ),
-    );
-  }
-}
-
-// --- PAGE D'ACCUEIL ---
-class HomePage extends StatelessWidget {
-  const HomePage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 20.0),
-        children: [
-          const SizedBox(height: 30),
-          Text("Révisions", style: GoogleFonts.poppins(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white)),
-          const Text("Choisissez votre méthode d'étude", style: TextStyle(color: Colors.white60, fontSize: 16)),
-          const SizedBox(height: 30),
-          _MethodCardRect(
-            title: "Flashcards",
-            subtitle: "Scanner PDF ou Image",
-            icon: Icons.style_rounded,
-            color: Colors.purpleAccent,
-            onTap: () => _showFlashcardScan(context),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showFlashcardScan(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => const FlashcardScanOverlay(),
-    );
-  }
-}
-
-// --- OVERLAY DE SCAN (SÉLECTION SOURCE, NOMBRE & CONNEXION SERVEUR) ---
+// ==========================================
+// 3. OVERLAY DE CONFIGURATION FLASHCARDS
+// ==========================================
 class FlashcardScanOverlay extends StatefulWidget {
   const FlashcardScanOverlay({super.key});
+
   @override
   State<FlashcardScanOverlay> createState() => _FlashcardScanOverlayState();
 }
 
 class _FlashcardScanOverlayState extends State<FlashcardScanOverlay> {
   String? _filePath;
-  double _questionCount = 5;
+  String? _fileName;
+  double _cardCount = 5;
   bool _isLoading = false;
 
-  // Adresse du serveur FastAPI (10.0.2.2 pour émulateur Android, 127.0.0.1 pour iOS/Desktop)
-  final String _backendUrl = "http://192.168.112.1:5000/generate-flashcards";
+  // URL de votre backend Render
+  final String _backendUrl = "http://192.168.2.245:5000";
 
-  // Sélection PDF
   Future<void> _pickPDF() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf'],
     );
     if (result != null) {
-      setState(() => _filePath = result.files.single.path);
+      setState(() {
+        _filePath = result.files.single.path;
+        _fileName = result.files.single.name;
+      });
     }
   }
 
-  // Sélection Image
   Future<void> _pickImage() async {
     final XFile? image = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (image != null) {
-      setState(() => _filePath = image.path);
+      setState(() {
+        _filePath = image.path;
+        _fileName = image.name;
+      });
     }
   }
 
-  // Envoi au serveur Python FastAPI
   Future<void> _generateCardsAndNavigate() async {
     if (_filePath == null) return;
 
     setState(() => _isLoading = true);
 
     try {
-      var request = http.MultipartRequest('POST', Uri.parse(_backendUrl));
+      // Endpoint dédié aux flashcards
+      var request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$_backendUrl/generate-flashcards'),
+      );
       request.files.add(await http.MultipartFile.fromPath('file', _filePath!));
-      request.fields['count'] = _questionCount.round().toString();
+      request.fields['count'] = _cardCount.round().toString();
 
-      var streamedResponse = await request.send();
+      // Timeout à 90 secondes pour gérer le réveil de Render + la génération IA
+      var streamedResponse = await request.send().timeout(
+        const Duration(seconds: 90),
+        onTimeout: () {
+          throw TimeoutException("Le serveur ou l'IA a mis trop de temps à répondre.");
+        },
+      );
+
       var response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
         List<dynamic> jsonList = jsonDecode(response.body);
-        List<Flashcard> cards = jsonList.map((item) => Flashcard(
-          question: item['question'] ?? '',
-          answer: item['answer'] ?? '',
-        )).toList();
+
+        // Décodage flexible (prend en compte question/answer ou front/back)
+        List<Flashcard> cards = jsonList.map((c) {
+          return Flashcard(
+            question: c['question'] ?? c['front'] ?? c['recto'] ?? "Question manquante",
+            answer: c['answer'] ?? c['back'] ?? c['verso'] ?? "Réponse manquante",
+          );
+        }).toList();
+
+        if (cards.isEmpty) {
+          _showError("Aucune flashcard n'a pu être générée depuis ce fichier.");
+          return;
+        }
 
         if (mounted) {
-          Navigator.pop(context);
+          Navigator.pop(context); // Ferme la bottom sheet
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (context) => FlashcardPlayPage(cards: cards)),
+            MaterialPageRoute(
+              builder: (context) => FlashcardPlayPage(cards: cards),
+            ),
           );
         }
+      } else if (response.statusCode == 503) {
+        _showError("Le service IA est temporairement surchargé. Réessayez dans quelques secondes.");
       } else {
-        _showError("Erreur serveur (${response.statusCode}): ${response.body}");
+        _showError("Erreur serveur (${response.statusCode}) : ${response.body}");
       }
+    } on TimeoutException catch (_) {
+      _showError("Délai dépassé. Le serveur Render est en train de sortir de veille, réessayez.");
+    } on SocketException catch (_) {
+      _showError("Erreur de connexion Internet. Vérifiez votre réseau.");
     } catch (e) {
-      _showError("Erreur de connexion : $e");
+      _showError("Une erreur est survenue : $e");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -161,7 +155,13 @@ class _FlashcardScanOverlayState extends State<FlashcardScanOverlay> {
 
   void _showError(String message) {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
@@ -178,13 +178,29 @@ class _FlashcardScanOverlayState extends State<FlashcardScanOverlay> {
             children: [
               CircularProgressIndicator(color: Colors.purpleAccent),
               SizedBox(height: 15),
-              Text("Génération des cartes par Gemini...", style: TextStyle(color: Colors.white70)),
+              Text(
+                "Génération des Flashcards...",
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+              SizedBox(height: 8),
+              Text(
+                "Sortie de veille du serveur et analyse IA (30-60s max)...",
+                style: TextStyle(color: Colors.white54, fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
             ],
           ),
         )
             : Column(
           children: [
-            const Text("Scanner un cours", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+            const Text(
+              "Générer des Flashcards",
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
             const SizedBox(height: 30),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -194,28 +210,48 @@ class _FlashcardScanOverlayState extends State<FlashcardScanOverlay> {
               ],
             ),
             const SizedBox(height: 25),
-            if (_filePath != null)
-              Text("Fichier prêt ✔", style: TextStyle(color: Colors.purpleAccent.shade100, fontWeight: FontWeight.bold)),
+            if (_fileName != null)
+              Text(
+                "Source : $_fileName",
+                style: const TextStyle(
+                  color: Colors.purpleAccent,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             const Spacer(),
-            Text("Nombre de cartes : ${_questionCount.round()}", style: const TextStyle(color: Colors.white70)),
+            Text(
+              "Nombre de cartes : ${_cardCount.round()}",
+              style: const TextStyle(color: Colors.white70),
+            ),
             Slider(
-              value: _questionCount,
-              min: 3,
+              value: _cardCount,
+              min: 2,
               max: 15,
-              divisions: 12,
+              divisions: 13,
               activeColor: Colors.purpleAccent,
               inactiveColor: Colors.white10,
-              onChanged: (v) => setState(() => _questionCount = v),
+              onChanged: (v) => setState(() => _cardCount = v),
             ),
             const SizedBox(height: 20),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.purpleAccent,
                 minimumSize: const Size(double.infinity, 55),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(15),
+                ),
               ),
               onPressed: _filePath == null ? null : _generateCardsAndNavigate,
-              child: const Text("Générer les Flashcards", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              child: const Text(
+                "Lancer les Flashcards",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             )
           ],
         ),
@@ -223,184 +259,225 @@ class _FlashcardScanOverlayState extends State<FlashcardScanOverlay> {
     );
   }
 
-  Widget _sourceBtn(IconData icon, String label, VoidCallback onTap) => GestureDetector(
-    onTap: onTap,
-    child: Column(children: [
-      CircleAvatar(radius: 35, backgroundColor: Colors.white10, child: Icon(icon, color: Colors.white, size: 30)),
-      const SizedBox(height: 10),
-      Text(label, style: const TextStyle(color: Colors.white, fontSize: 14)),
-    ]),
-  );
+  Widget _sourceBtn(IconData icon, String label, VoidCallback onTap) =>
+      GestureDetector(
+        onTap: onTap,
+        child: Column(children: [
+          CircleAvatar(
+            radius: 35,
+            backgroundColor: Colors.white10,
+            child: Icon(icon, color: Colors.white, size: 30),
+          ),
+          const SizedBox(height: 10),
+          Text(label, style: const TextStyle(color: Colors.white, fontSize: 14)),
+        ]),
+      );
 }
 
-// --- ÉCRAN DE JEU (FLIP CARD) ---
+// ==========================================
+// 4. ÉCRAN DE JEU INTERACTIF (CARTE RETOURNABLE)
+// ==========================================
 class FlashcardPlayPage extends StatefulWidget {
   final List<Flashcard> cards;
   const FlashcardPlayPage({super.key, required this.cards});
+
   @override
   State<FlashcardPlayPage> createState() => _FlashcardPlayPageState();
 }
 
 class _FlashcardPlayPageState extends State<FlashcardPlayPage> {
   int _index = 0;
-  bool _isFlipped = false;
+  bool _showAnswer = false;
+
+  void _nextCard() {
+    if (_index < widget.cards.length - 1) {
+      setState(() {
+        _index++;
+        _showAnswer = false;
+      });
+    } else {
+      _showEndDialog();
+    }
+  }
+
+  void _previousCard() {
+    if (_index > 0) {
+      setState(() {
+        _index--;
+        _showAnswer = false;
+      });
+    }
+  }
+
+  void _showEndDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text("Session terminée !", style: TextStyle(color: Colors.white)),
+        content: Text(
+          "Vous avez révisé les ${widget.cards.length} flashcards.",
+          style: const TextStyle(color: Colors.white70, fontSize: 16),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.pop(context);
+            },
+            child: const Text("Terminer", style: TextStyle(color: Colors.purpleAccent)),
+          )
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (widget.cards.isEmpty) {
+      return const Scaffold(
+        backgroundColor: Color(0xFF000B18),
+        body: Center(
+          child: Text("Aucune carte disponible.", style: TextStyle(color: Colors.white)),
+        ),
+      );
+    }
+
+    final card = widget.cards[_index];
+
     return Scaffold(
       backgroundColor: const Color(0xFF000B18),
-      appBar: AppBar(backgroundColor: Colors.transparent, elevation: 0, title: Text("Flashcard ${_index + 1}/${widget.cards.length}")),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: Text(
+          "Carte ${_index + 1} / ${widget.cards.length}",
+          style: GoogleFonts.poppins(color: Colors.white),
+        ),
+      ),
       body: Padding(
-        padding: const EdgeInsets.all(25),
+        padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            LinearProgressIndicator(value: (_index + 1) / widget.cards.length, color: Colors.purpleAccent, backgroundColor: Colors.white10),
-            const SizedBox(height: 40),
+            LinearProgressIndicator(
+              value: (_index + 1) / widget.cards.length,
+              backgroundColor: Colors.white10,
+              color: Colors.purpleAccent,
+            ),
+            const SizedBox(height: 30),
+            // CARTE INTERACTIVE (CLIC POUR RETOURNER)
             Expanded(
               child: GestureDetector(
-                onTap: () => setState(() => _isFlipped = !_isFlipped),
-                child: TweenAnimationBuilder(
-                  duration: const Duration(milliseconds: 500),
-                  curve: Curves.easeInOut,
-                  tween: Tween<double>(begin: 0, end: _isFlipped ? 180 : 0),
-                  builder: (context, double val, child) {
-                    return Transform(
-                      alignment: Alignment.center,
-                      transform: Matrix4.identity()..setEntry(3, 2, 0.001)..rotateY(val * pi / 180),
-                      child: val < 90
-                          ? _buildCardSide("Question", widget.cards[_index].question, Colors.white)
-                          : Transform(
-                        alignment: Alignment.center,
-                        transform: Matrix4.identity()..rotateY(pi),
-                        child: _buildCardSide("Réponse", widget.cards[_index].answer, Colors.purpleAccent),
+                onTap: () => setState(() => _showAnswer = !_showAnswer),
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  child: Container(
+                    key: ValueKey(_showAnswer),
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(30),
+                    decoration: BoxDecoration(
+                      color: _showAnswer
+                          ? Colors.purple.withOpacity(0.15)
+                          : Colors.white.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(25),
+                      border: Border.all(
+                        color: _showAnswer ? Colors.purpleAccent : Colors.white24,
+                        width: 1.5,
                       ),
-                    );
-                  },
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          _showAnswer ? "RÉPONSE" : "QUESTION",
+                          style: TextStyle(
+                            color: _showAnswer ? Colors.purpleAccent : Colors.white38,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.5,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          _showAnswer ? card.answer : card.question,
+                          style: GoogleFonts.poppins(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 30),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.touch_app_rounded,
+                              color: Colors.white.withOpacity(0.3),
+                              size: 18,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              "Appuyez pour retourner",
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.3),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        )
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
-            const SizedBox(height: 40),
-            if (_isFlipped)
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.white10, minimumSize: const Size(double.infinity, 60), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
-                onPressed: () {
-                  if (_index < widget.cards.length - 1) {
-                    setState(() {
-                      _index++;
-                      _isFlipped = false;
-                    });
-                  } else {
-                    Navigator.pop(context);
-                  }
-                },
-                child: const Text("Suivant", style: TextStyle(color: Colors.white, fontSize: 18)),
-              ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 30),
+            // BOUTONS DE NAVIGATION
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      side: const BorderSide(color: Colors.white24),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                    ),
+                    onPressed: _index > 0 ? _previousCard : null,
+                    child: const Text(
+                      "Précédent",
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 15),
+                Expanded(
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.purpleAccent,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                    ),
+                    onPressed: _nextCard,
+                    child: Text(
+                      _index == widget.cards.length - 1 ? "Terminer" : "Suivant",
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),
     );
   }
-
-  Widget _buildCardSide(String label, String text, Color accent) => Container(
-    padding: const EdgeInsets.all(30),
-    decoration: BoxDecoration(
-      color: Colors.white.withOpacity(0.05),
-      borderRadius: BorderRadius.circular(30),
-      border: Border.all(color: Colors.white.withOpacity(0.1)),
-    ),
-    child: Center(
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Text(label, style: TextStyle(color: accent.withOpacity(0.5), fontWeight: FontWeight.bold)),
-          const SizedBox(height: 20),
-          Text(text, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w600)),
-        ])),
-  );
-}
-
-// --- COMPOSANTS UI RÉUTILISABLES ---
-class _MethodCardRect extends StatelessWidget {
-  final String title, subtitle;
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
-  const _MethodCardRect({required this.title, required this.subtitle, required this.icon, required this.color, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: GlassContainer(
-        height: 100,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Row(children: [
-            Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: color.withOpacity(0.2), borderRadius: BorderRadius.circular(15)), child: Icon(icon, color: color, size: 30)),
-            const SizedBox(width: 20),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-                  Text(subtitle, style: const TextStyle(fontSize: 13, color: Colors.white54)),
-                ],
-              ),
-            ),
-            const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white24, size: 18),
-          ]),
-        ),
-      ),
-    );
-  }
-}
-
-class GlassContainer extends StatelessWidget {
-  final Widget child;
-  final double? height;
-  const GlassContainer({super.key, required this.child, this.height});
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(25),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: Container(
-          height: height,
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(25),
-            border: Border.all(color: Colors.white.withOpacity(0.1)),
-          ),
-          child: child,
-        ),
-      ),
-    );
-  }
-}
-
-class GlassBottomNav extends StatelessWidget {
-  final int currentIndex;
-  final Function(int) onTap;
-  const GlassBottomNav({super.key, required this.currentIndex, required this.onTap});
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 20, right: 20, bottom: 25),
-      child: GlassContainer(
-        height: 70,
-        child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-          _navIcon(Icons.grid_view_rounded, 0),
-          _navIcon(Icons.folder_copy_rounded, 1),
-          _navIcon(Icons.headphones_rounded, 2),
-          _navIcon(Icons.settings_rounded, 3),
-        ]),
-      ),
-    );
-  }
-
-  Widget _navIcon(IconData icon, int index) => GestureDetector(
-    onTap: () => onTap(index),
-    child: Icon(icon, color: currentIndex == index ? Colors.blueAccent : Colors.white54),
-  );
 }

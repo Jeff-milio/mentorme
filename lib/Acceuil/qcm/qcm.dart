@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:file_picker/file_picker.dart';
@@ -127,7 +128,7 @@ class _QcmScanOverlayState extends State<QcmScanOverlay> {
   bool _isLoading = false;
 
   // URL du serveur Backend
-  final String _backendUrl = "http://10.10.10.44 :5000/generate";
+  final String _backendUrl = "http://192.168.2.245:5000";
 
   Future<void> _pickPDF() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
@@ -158,11 +159,22 @@ class _QcmScanOverlayState extends State<QcmScanOverlay> {
     setState(() => _isLoading = true);
 
     try {
-      var request = http.MultipartRequest('POST', Uri.parse(_backendUrl));
+      // CORRECTION: Ajout explicite de /generate à l'URL du serveur
+      var request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$_backendUrl/generate'), // Appel vers https://api-python-qcm-4.onrender.com/generate
+      );
       request.files.add(await http.MultipartFile.fromPath('file', _filePath!));
       request.fields['count'] = _questionCount.round().toString();
 
-      var streamedResponse = await request.send();
+      // CORRECTION: Timeout de 60 secondes pour laisser Render sortir de veille
+      var streamedResponse = await request.send().timeout(
+        const Duration(seconds: 60),
+        onTimeout: () {
+          throw TimeoutException("Le serveur met du temps à répondre. Veuillez réessayez.");
+        },
+      );
+
       var response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
@@ -188,7 +200,7 @@ class _QcmScanOverlayState extends State<QcmScanOverlay> {
         _showError("Erreur serveur (${response.statusCode}): ${response.body}");
       }
     } catch (e) {
-      _showError("Impossible de joindre le serveur : $e");
+      _showError("Erreur de connexion : $e");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -216,8 +228,14 @@ class _QcmScanOverlayState extends State<QcmScanOverlay> {
               CircularProgressIndicator(color: Colors.indigoAccent),
               SizedBox(height: 15),
               Text(
-                "Génération des questions par l'IA...",
-                style: TextStyle(color: Colors.white70),
+                "Analyse du document par l'IA...",
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+              SizedBox(height: 8),
+              Text(
+                "Initialisation du serveur (30s max si inactif)...",
+                style: TextStyle(color: Colors.white54, fontSize: 12),
+                textAlign: TextAlign.center,
               ),
             ],
           ),
@@ -475,7 +493,7 @@ class _QcmPlayPageState extends State<QcmPlayPage> {
   }
 }
 
-// --- COMPOSANTS REUTILISABLES (GLASSMORPHISME) ---
+// --- COMPOSANTS RÉUTILISABLES (GLASSMORPHISME) ---
 class _MethodCardRect extends StatelessWidget {
   final String title, subtitle;
   final IconData icon;

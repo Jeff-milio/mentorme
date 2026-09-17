@@ -7,3 +7,10 @@
  VraiOUfaux
 
     Manao maquette n'ireo
+
+PAR CABLE ITY:
+    adb reverse tcp:5000 tcp:5000
+
+ PAR MEME CONNEXION INTERNET : Mety miovaova
+       final String _backendUrl = "http://192.168.2.245:5000";
+

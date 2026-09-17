@@ -1,5 +1,7 @@
 import 'dart:ui';
 import 'dart:convert';
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:file_picker/file_picker.dart';
@@ -19,7 +21,7 @@ class TrueFalseItem {
   });
 }
 
-// --- OVERLAY SELECTION ---
+// --- OVERLAY SÉLECTION & SCANNAGE ---
 class TrueFalseScanOverlay extends StatefulWidget {
   const TrueFalseScanOverlay({super.key});
 
@@ -33,7 +35,8 @@ class _TrueFalseScanOverlayState extends State<TrueFalseScanOverlay> {
   double _questionCount = 5;
   bool _isLoading = false;
 
-  final String _backendUrl = "http://10.0.2.2:5000/generate-true-false";
+  // URL du backend Render
+  final String _backendUrl = "http://192.168.2.245:5000";
 
   Future<void> _pickPDF() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
@@ -64,22 +67,39 @@ class _TrueFalseScanOverlayState extends State<TrueFalseScanOverlay> {
     setState(() => _isLoading = true);
 
     try {
-      var request = http.MultipartRequest('POST', Uri.parse(_backendUrl));
+      var request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$_backendUrl/generate-true-false'),
+      );
       request.files.add(await http.MultipartFile.fromPath('file', _filePath!));
       request.fields['count'] = _questionCount.round().toString();
 
-      var streamedResponse = await request.send();
+      // Timeout à 90 secondes pour gérer la sortie de veille Render + génération IA
+      var streamedResponse = await request.send().timeout(
+        const Duration(seconds: 90),
+        onTimeout: () {
+          throw TimeoutException("Le serveur ou l'IA a mis trop de temps à répondre.");
+        },
+      );
+
       var response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
         List<dynamic> jsonList = jsonDecode(response.body);
+
+        // Décodage souple des clés JSON (statement, isTrue, explanation)
         List<TrueFalseItem> items = jsonList.map((item) {
           return TrueFalseItem(
-            statement: item['statement'] ?? '',
-            isTrue: item['isTrue'] ?? false,
-            explanation: item['explanation'] ?? '',
+            statement: item['statement'] ?? item['question'] ?? item['affirmation'] ?? '',
+            isTrue: item['isTrue'] ?? item['answer'] ?? item['vrai'] ?? false,
+            explanation: item['explanation'] ?? item['explication'] ?? '',
           );
         }).toList();
+
+        if (items.isEmpty) {
+          _showError("Aucune affirmation n'a pu être générée à partir de ce fichier.");
+          return;
+        }
 
         if (mounted) {
           Navigator.pop(context);
@@ -90,11 +110,17 @@ class _TrueFalseScanOverlayState extends State<TrueFalseScanOverlay> {
             ),
           );
         }
+      } else if (response.statusCode == 503) {
+        _showError("Le service IA est temporairement surchargé. Réessayez dans quelques secondes.");
       } else {
-        _showError("Erreur serveur (${response.statusCode}): ${response.body}");
+        _showError("Erreur serveur (${response.statusCode}) : ${response.body}");
       }
+    } on TimeoutException catch (_) {
+      _showError("Délai dépassé. Le serveur Render redémarre, réessayez dans 10 secondes.");
+    } on SocketException catch (_) {
+      _showError("Erreur de connexion Internet. Vérifiez votre réseau.");
     } catch (e) {
-      _showError("Impossible de contacter le serveur: $e");
+      _showError("Impossible de contacter le serveur : $e");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -102,7 +128,13 @@ class _TrueFalseScanOverlayState extends State<TrueFalseScanOverlay> {
 
   void _showError(String msg) {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
@@ -119,7 +151,16 @@ class _TrueFalseScanOverlayState extends State<TrueFalseScanOverlay> {
             children: [
               CircularProgressIndicator(color: Colors.greenAccent),
               SizedBox(height: 15),
-              Text("Génération du test Vrai/Faux...", style: TextStyle(color: Colors.white70)),
+              Text(
+                "Génération du test Vrai/Faux...",
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+              SizedBox(height: 8),
+              Text(
+                "Sortie de veille du serveur et analyse IA (30-60s max)...",
+                style: TextStyle(color: Colors.white54, fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
             ],
           ),
         )
@@ -235,6 +276,15 @@ class _TrueFalseViewPageState extends State<TrueFalseViewPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.items.isEmpty) {
+      return const Scaffold(
+        backgroundColor: Color(0xFF121212),
+        body: Center(
+          child: Text("Aucune question disponible.", style: TextStyle(color: Colors.white)),
+        ),
+      );
+    }
+
     final currentItem = widget.items[_currentIndex];
 
     return Scaffold(
